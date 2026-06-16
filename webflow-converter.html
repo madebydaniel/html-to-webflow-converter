@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code to Webflow Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <!-- Babel CDN removed; code rewritten in plain JS -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+    <div id="root"></div>
+
+    <script>
+        const { useState, useRef } = React;
+        const e = React.createElement;
+
+        function CodeToWebflowApp() {
+            const [inputHtml, setInputHtml] = useState('');
+            const [webflowData, setWebflowData] = useState(null);
+            const [cssData, setCssData] = useState('');
+            const [jsData, setJsData] = useState('');
+            const [copiedWf, setCopiedWf] = useState(false);
+            const [copiedCss, setCopiedCss] = useState(false);
+            const [copiedJs, setCopiedJs] = useState(false);
+
+            function generateId() {
+                return Math.random().toString(36).substring(2, 11);
+            }
+
+            const parseHtmlToWebflow = (htmlString) => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlString, 'text/html');
+
+                const nodes = [];
+                const extractedStyles = [];
+                const scripts = [];
+                const stylesMap = new Map();
+
+                const parsedCssRules = {};
+
+                doc.querySelectorAll('style').forEach(style => {
+                    const text = style.textContent.trim();
+                    if (text) {
+                        const tempStyle = document.createElement('style');
+                        tempStyle.textContent = text;
+                        document.head.appendChild(tempStyle);
+
+                        try {
+                            const sheet = tempStyle.sheet;
+                            const rulesToKeep = [];
+
+                            for (let i = 0; i < sheet.cssRules.length; i++) {
+                                const rule = sheet.cssRules[i];
+                                if (rule.type === CSSRule.STYLE_RULE) {
+                                    const match = /^(\.[a-zA-Z0-9_-]+)(:hover|:active|:focus)?$/.exec(rule.selectorText);
+                                    if (match) {
+                                        const className = match[1].substring(1);
+                                        const pseudo = match[2];
+                                        const cssText = rule.style.cssText;
+
+                                        if (!parsedCssRules[className]) {
+                                            parsedCssRules[className] = { styleLess: "", variants: {} };
+                                        }
+
+                                        if (pseudo === ':hover') {
+                                            parsedCssRules[className].variants["main_hover"] = { styleLess: cssText };
+                                        } else if (pseudo === ':active') {
+                                            parsedCssRules[className].variants["main_active"] = { styleLess: cssText };
+                                        } else if (pseudo === ':focus') {
+                                            parsedCssRules[className].variants["main_focus"] = { styleLess: cssText };
+                                        } else {
+                                            parsedCssRules[className].styleLess += (parsedCssRules[className].styleLess ? " " : "") + cssText;
+                                        }
+                                    } else {
+                                        rulesToKeep.push(rule.cssText);
+                                    }
+                                } else {
+                                    rulesToKeep.push(rule.cssText);
+                                }
+                            }
+
+                            if (rulesToKeep.length > 0) {
+                                extractedStyles.push(rulesToKeep.join('\n'));
+                            }
+                        } catch (e) {
+                            extractedStyles.push(text);
+                        }
+
+                        tempStyle.remove();
+                    }
+                    style.remove();
+                });
+
+                doc.querySelectorAll('script').forEach(script => {
+                    const src = script.getAttribute('src');
+                    if (src) {
+                        scripts.push(`<script src="${src}"><\/script>`);
+                    } else {
+                        const text = script.textContent.trim();
+                        if (text) scripts.push(`<script>\n${text}\n<\/script>`);
+                    }
+                    script.remove();
+                });
+
+                function processElement(el) {
+                    if (el.nodeType === 3) { // Node.TEXT_NODE
+                        const text = el.textContent.trim();
+                        if (!text) return null;
+
+                        const textNode = {
+                            _id: generateId(),
+                            text: true,
+                            v: text
+                        };
+                        nodes.push(textNode);
+                        return textNode._id;
+                    }
+
+                    if (el.nodeType === Node.ELEMENT_NODE) {
+                        if (['STYLE', 'SCRIPT', 'META', 'TITLE', 'HEAD', 'HTML', 'BODY', 'NOSCRIPT'].includes(el.tagName)) return null;
+
+                        const originalTag = el.tagName.toLowerCase();
+
+                        // Encapsulate complex or interactive elements in an HTML Embed to prevent Webflow canvas crashes
+                        if (['svg', 'iframe', 'canvas', 'video', 'audio'].includes(originalTag)) {
+                            const id = generateId();
+                            const clsArr = Array.from(el.classList);
+                            const classIds = [];
+                            clsArr.forEach(c => {
+                                if (!stylesMap.has(c)) {
+                                    stylesMap.set(c, generateId());
+                                }
+                                classIds.push(stylesMap.get(c));
+                            });
+
+                            const embedNode = {
+                                _id: id,
+                                type: 'HtmlEmbed',
+                                tag: 'div',
+                                classes: classIds,
+                                children: [],
+                                data: {
+                                    embed: {
+                                        type: 'html',
+                                        content: el.outerHTML
+                                    }
+                                }
+                            };
+                            nodes.push(embedNode);
+                            return embedNode._id;
+                        }
+
+                        let type = "Block";
+                        let tag = originalTag;
+
+                        if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(originalTag)) {
+                            type = 'Heading';
+                        } else if (originalTag === 'p') {
+                            type = 'Paragraph';
+                        } else if (originalTag === 'img') {
+                            type = 'Image';
+                        } else if (originalTag === 'a') {
+                            type = 'Link';
+                        } else if (originalTag === 'br') {
+                            type = 'LineBreak';
+                        } else if (['hr', 'input', 'textarea'].includes(originalTag)) {
+                            tag = 'div'; // Convert void elements to div to prevent React children crashes
+                        }
+
+                        const id = generateId();
+                        let nodeObj = {
+                            _id: id
+                        };
+
+                        nodeObj.type = type;
+                        nodeObj.tag = tag;
+
+                        const clsArr = Array.from(el.classList);
+                        const classIds = [];
+                        clsArr.forEach(c => {
+                            if (!stylesMap.has(c)) {
+                                stylesMap.set(c, generateId());
+                            }
+                            classIds.push(stylesMap.get(c));
+                        });
+                        nodeObj.classes = classIds;
+
+                        nodeObj.children = [];
+
+                        nodeObj.data = {
+                            "text": false,
+                            "tag": tag,
+                            "devlink": {
+                                "runtimeProps": {},
+                                "slot": ""
+                            },
+                            "displayName": "",
+                            "attr": {
+                                "id": ""
+                            },
+                            "xattr": [],
+                            "search": {
+                                "exclude": false
+                            },
+                            "visibility": {
+                                "conditions": [],
+                                "keepInHtml": {
+                                    "tag": "False",
+                                    "val": {}
+                                }
+                            }
+                        };
+
+                        if (el.hasAttributes() && nodeObj.data && nodeObj.data.attr) {
+                            for (const attr of el.attributes) {
+                                if (attr.name !== 'class' && attr.name !== 'style') {
+                                    nodeObj.data.attr[attr.name] = attr.value;
+                                }
+                            }
+                        }
+
+                        if (originalTag === 'img') {
+                            const src = el.getAttribute('src') || '';
+                            nodeObj.data.attr.src = src;
+                            nodeObj.data.attr.alt = el.getAttribute('alt') || '';
+                            nodeObj.data.src = src;
+                        }
+
+                        if (originalTag === 'a') {
+                            nodeObj.data.href = el.getAttribute('href') || '#';
+                        }
+
+                        const childIds = [];
+                        for (const child of el.childNodes) {
+                            const childId = processElement(child);
+                            if (childId) {
+                                childIds.push(childId);
+                            }
+                        }
+
+                        // Prevent Slate.js crashes by ensuring rich text elements are never completely empty
+                        if (['Paragraph', 'Heading'].includes(type) && childIds.length === 0) {
+                            const emptyTextId = generateId();
+                            nodes.push({
+                                _id: emptyTextId,
+                                text: true,
+                                v: "\u200B"
+                            });
+                            childIds.push(emptyTextId);
+                        }
+
+                        // Only add children if the node type supports it and children were found
+                        if (childIds.length > 0 && nodeObj.children) {
+                            nodeObj.children.push(...childIds);
+                        }
+
+                        nodes.push(nodeObj);
+                        return id;
+                    }
+                    return null;
+                }
+
+                const topLevelIds = [];
+                for (const child of doc.body.childNodes) {
+                    const childId = processElement(child);
+                    if (childId) {
+                        topLevelIds.push(childId);
+                    }
+                }
+
+                if (topLevelIds.length > 1) {
+                    // Wrap multiple roots into one
+                    const masterParentId = generateId();
+                    const masterParent = {
+                        _id: masterParentId,
+                        type: "Block",
+                        tag: "div",
+                        classes: [],
+                        data: {
+                            "text": false,
+                            "tag": "div",
+                            "devlink": {
+                                "runtimeProps": {},
+                                "slot": ""
+                            },
+                            "displayName": "",
+                            "attr": {
+                                "id": ""
+                            },
+                            "xattr": [],
+                            "search": {
+                                "exclude": false
+                            },
+                            "visibility": {
+                                "conditions": [],
+                                "keepInHtml": {
+                                    "tag": "False",
+                                    "val": {}
+                                }
+                            }
+                        },
+                        children: topLevelIds
+                    };
+                    nodes.push(masterParent);
+                }
+
+                const generatedStyles = Array.from(stylesMap.entries()).map(([name, id]) => {
+                    const rules = parsedCssRules[name] || { styleLess: "", variants: {} };
+                    return {
+                        _id: id,
+                        fake: false,
+                        type: "class",
+                        name: name,
+                        namespace: "",
+                        comb: "",
+                        styleLess: rules.styleLess.trim(),
+                        variants: rules.variants,
+                        children: [],
+                        createdBy: "5ed5cf99e1889f51a8252df4",
+                        selector: null
+                    };
+                });
+
+                return {
+                    cssText: extractedStyles.length > 0 ? `<style>\n${extractedStyles.join('\n').trim()}\n</style>` : '',
+                    jsText: scripts.join('\n').trim(),
+                    webflowJson: {
+                        type: "@webflow/XscpData",
+                        payload: {
+                            nodes: nodes,
+                            styles: generatedStyles,
+                            assets: [],
+                            ix1: [],
+                            ix2: {
+                                interactions: [],
+                                events: [],
+                                actionLists: []
+                            }
+                        },
+                        meta: {
+                            droppedLinks: 0,
+                            dynBindRemovedCount: 0,
+                            dynListBindRemovedCount: 0,
+                            paginationRemovedCount: 0,
+                            universalBindingsRemovedCount: 0,
+                            unlinkedSymbolCount: 0,
+                            codeComponentsRemovedCount: 0
+                        }
+                    }
+                };
+            };
+
+            const handleConvert = () => {
+                if (!inputHtml.trim()) return;
+                try {
+                    const result = parseHtmlToWebflow(inputHtml);
+                    setWebflowData(result.webflowJson);
+                    setCssData(result.cssText);
+                    setJsData(result.jsText);
+                    setCopiedWf(false);
+                    setCopiedCss(false);
+                    setCopiedJs(false);
+                    setWebflowPasteData('');
+                    setConsoleErrors('');
+
+                    // VALIDATION INJECTION V18
+                    const webflowNativeExample = { "type": "@webflow/XscpData", "payload": { "type": "@webflow/X-Ray", "meta": { "unlinkedSymbolCount": 0, "droppedLinks": 0 }, "nodes": [{ "_id": "b38tzouc3", "type": "String", "tag": "span", "text": "Drag" }, { "_id": "xdtnps032", "type": "TextSpan", "tag": "span", "classes": ["custom-cursor__text"], "data": {}, "children": ["b38tzouc3"] }, { "_id": "mjagtlzs6", "type": "Block", "tag": "div", "classes": ["custom-cursor"], "data": { "attributes": { "id": "cursor" } }, "children": ["xdtnps032"] }], "assets": [] } };
+
+                    const myNodes = result.webflowJson.payload.nodes;
+                    if (!myNodes) { console.error("FATAL: payload.nodes is entirely missing or null!"); }
+
+                } catch (err) {
+                    console.error("Error parsing HTML:", err);
+                    alert("Failed to parse HTML.");
+                }
+            };
+
+            const copyWebflowToClipboard = () => {
+                if (!webflowData) return;
+                const jsonStr = JSON.stringify(webflowData, null, 2);
+
+                const handleCopy = (e) => {
+                    e.clipboardData.setData('application/json', jsonStr);
+                    // CRITICAL: We intentionally DO NOT set 'text/plain' or 'text/html'. 
+                    e.preventDefault();
+                };
+
+                document.addEventListener('copy', handleCopy);
+                try {
+                    document.execCommand('copy');
+                    setCopiedWf(true);
+                    setTimeout(() => setCopiedWf(false), 2000);
+                } catch (err) {
+                    console.error('Copy failed:', err);
+                    alert('Could not copy JSON.');
+                } finally {
+                    document.removeEventListener('copy', handleCopy);
+                }
+            };
+
+            const copyNativeWebflowTest = () => {
+                const nativeJson = {
+                    "type": "@webflow/XscpData",
+                    "payload": {
+                        "nodes": [{
+                            "_id": "b38tzouc3",
+                            "type": "Block",
+                            "tag": "div",
+                            "classes": [],
+                            "children": [],
+                            "data": {
+                                "text": false,
+                                "tag": "div",
+                                "devlink": {
+                                    "runtimeProps": {},
+                                    "slot": ""
+                                },
+                                "displayName": "",
+                                "attr": {
+                                    "id": ""
+                                },
+                                "xattr": [],
+                                "search": {
+                                    "exclude": false
+                                },
+                                "visibility": {
+                                    "conditions": [],
+                                    "keepInHtml": {
+                                        "tag": "False",
+                                        "val": {}
+                                    }
+                                }
+                            }
+                        }],
+                        "styles": [],
+                        "assets": [],
+                        "ix1": [],
+                        "ix2": {
+                            "interactions": [],
+                            "events": [],
+                            "actionLists": []
+                        }
+                    },
+                    "meta": {
+                        "droppedLinks": 0,
+                        "dynBindRemovedCount": 0,
+                        "dynListBindRemovedCount": 0,
+                        "paginationRemovedCount": 0,
+                        "universalBindingsRemovedCount": 0,
+                        "unlinkedSymbolCount": 0,
+                        "codeComponentsRemovedCount": 0
+                    }
+                };
+                const jsonStr = JSON.stringify(nativeJson, null, 2);
+
+                const handleCopy = (e) => {
+                    e.clipboardData.setData('application/json', jsonStr);
+                    e.preventDefault();
+                };
+
+                document.addEventListener('copy', handleCopy);
+                try {
+                    document.execCommand('copy');
+                    alert('Copied Native Webflow Test Snippet! Try pasting this into Webflow.');
+                } catch (err) {
+                    console.error('Copy failed:', err);
+                } finally {
+                    document.removeEventListener('copy', handleCopy);
+                }
+            };
+
+            const copyTextToClipboard = (text, setter) => {
+                navigator.clipboard.writeText(text).then(() => {
+                    setter(true);
+                    setTimeout(() => setter(false), 2000);
+                });
+            };
+
+            const [webflowPasteData, setWebflowPasteData] = useState('');
+            const [consoleErrors, setConsoleErrors] = useState('');
+
+            return e("div", { className: "max-w-6xl mx-auto p-6 space-y-8" },
+                e("header", { className: "border-b pb-6 flex justify-between items-center" },
+                    e("div", null,
+                        e("h1", { className: "text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent" }, "Code to Webflow Converter"),
+                        e("p", { className: "text-gray-500 mt-2" }, "v26.5.27.01 Paste your HTML document with styles and scripts, and convert it into Webflow clipboard format.")
+                    )
+                ),
+                e("div", { className: "grid grid-cols-1 lg:grid-cols-2 gap-8" },
+                    e("div", { className: "flex flex-col space-y-4" },
+                        e("label", { className: "text-sm font-semibold text-gray-700" }, "Input HTML"),
+                        e("textarea", {
+                            className: "w-full h-96 p-4 border border-gray-300 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-none",
+                            placeholder: "<html><body>...</body></html>",
+                            value: inputHtml,
+                            onChange: (event) => setInputHtml(event.target.value)
+                        }),
+                        e("button", {
+                            onClick: handleConvert,
+                            className: "w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md font-medium transition-colors"
+                        }, "Convert to Webflow")
+                    ),
+                    e("div", { className: "flex flex-col space-y-6" },
+                        e("h2", { className: "text-xl font-bold text-gray-800" }, "Outputs"),
+                        e("div", { className: "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col items-start justify-between space-y-4" },
+                            e("div", null,
+                                e("h3", { className: "font-semibold text-gray-800" }, "Webflow Elements"),
+                                e("p", { className: "text-xs text-gray-500 mt-1" }, "Parsed DOM tree mapped to @webflow/X-Ray JSON structure. Paste this directly on the Webflow canvas.")
+                            ),
+                            e("div", { className: "w-full grid grid-cols-2 gap-2" },
+                                e("button", {
+                                    onClick: copyNativeWebflowTest,
+                                    className: "w-full py-2.5 px-4 rounded-lg font-medium transition-colors bg-purple-100 text-purple-700 hover:bg-purple-200"
+                                }, "Test Native Snippet"),
+                                e("button", {
+                                    onClick: copyWebflowToClipboard,
+                                    disabled: !webflowData,
+                                    className: `w-full py-2.5 px-4 rounded-lg font-medium transition-colors ${!webflowData ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : copiedWf ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`
+                                }, copiedWf ? 'Copied!' : 'Copy Converted HTML')
+                            )
+                        ),
+                        e("div", { className: "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col items-start justify-between space-y-4" },
+                            e("div", null,
+                                e("h3", { className: "font-semibold text-gray-800" }, "CSS Styles"),
+                                e("p", { className: "text-xs text-gray-500 mt-1" }, "Raw CSS extracted from <style> tags. Paste this in Webflow site settings or page head.")
+                            ),
+                            e("div", { className: "w-full flex space-x-3" },
+                                e("textarea", { readOnly: true, value: cssData, className: "w-full h-20 text-xs font-mono p-2 border rounded-md bg-gray-50 text-gray-600", placeholder: "Extracted CSS..." })
+                            ),
+                            e("button", {
+                                onClick: () => copyTextToClipboard(cssData, setCopiedCss),
+                                disabled: !cssData,
+                                className: `w-full py-2.5 px-4 rounded-lg font-medium transition-colors ${!cssData ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : copiedCss ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`
+                            }, copiedCss ? 'Copied CSS!' : 'Copy CSS')
+                        ),
+                        e("div", { className: "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col items-start justify-between space-y-4" },
+                            e("div", null,
+                                e("h3", { className: "font-semibold text-gray-800" }, "JavaScript"),
+                                e("p", { className: "text-xs text-gray-500 mt-1" }, "Raw JavaScript extracted from <script> tags. Paste this in Webflow page body settings.")
+                            ),
+                            e("div", { className: "w-full flex space-x-3" },
+                                e("textarea", { readOnly: true, value: jsData, className: "w-full h-20 text-xs font-mono p-2 border rounded-md bg-gray-50 text-gray-600", placeholder: "Extracted JS..." })
+                            ),
+                            e("button", {
+                                onClick: () => copyTextToClipboard(jsData, setCopiedJs),
+                                disabled: !jsData,
+                                className: `w-full py-2.5 px-4 rounded-lg font-medium transition-colors ${!jsData ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : copiedJs ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`
+                            }, copiedJs ? 'Copied JS!' : 'Copy JS')
+                        )
+                    )
+                ),
+                e("div", { className: "mt-12 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col space-y-6" },
+                    e("div", null,
+                        e("h2", { className: "text-2xl font-bold text-gray-800" }, "Bug Report Generator"),
+                        e("p", { className: "text-sm text-gray-500 mt-1" }, "Help us debug Webflow crashes by providing exactly what's happening.")
+                    ),
+                    e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6" },
+                        e("div", { className: "flex flex-col space-y-2" },
+                            e("label", { className: "text-sm font-semibold text-gray-700" }, "1. Paste Webflow's Version"),
+                            e("p", { className: "text-xs text-gray-500" }, "Paste here after copying a node in Webflow."),
+                            e("textarea", {
+                                className: "w-full h-32 p-3 border border-gray-300 rounded-lg text-xs font-mono resize-y",
+                                placeholder: "Cmd+V here from Webflow...",
+                                value: webflowPasteData,
+                                onChange: (e) => setWebflowPasteData(e.target.value),
+                                onPaste: (e) => {
+                                    e.preventDefault();
+                                    const jsonPayload = e.clipboardData.getData('application/json');
+                                    const htmlPayload = e.clipboardData.getData('text/html');
+                                    const plainPayload = e.clipboardData.getData('text/plain');
+                                    let output = "";
+                                    if (jsonPayload) output += "=== application/json ===\n" + jsonPayload + "\n\n";
+                                    if (htmlPayload) output += "=== text/html ===\n" + htmlPayload + "\n\n";
+                                    if (plainPayload && !jsonPayload && !htmlPayload) output = plainPayload;
+                                    setWebflowPasteData(output || plainPayload || "No data");
+                                }
+                            })
+                        ),
+                        e("div", { className: "flex flex-col space-y-2" },
+                            e("label", { className: "text-sm font-semibold text-gray-700" }, "2. Paste Console Errors"),
+                            e("p", { className: "text-xs text-gray-500" }, "Paste the red stack trace from Webflow console."),
+                            e("textarea", {
+                                className: "w-full h-32 p-3 border border-gray-300 rounded-lg text-xs font-mono resize-y",
+                                placeholder: "Paste errors...",
+                                value: consoleErrors,
+                                onChange: (e) => setConsoleErrors(e.target.value)
+                            })
+                        )
+                    ),
+                    e("button", {
+                        onClick: () => {
+                            const report = `=== BUG REPORT ===
+
+--- 1. RAW HTML INPUT ---
+${inputHtml}
+
+--- 2. OUR GENERATED WEBFLOW JSON ---
+${JSON.stringify(webflowData, null, 2)}
+
+--- 3. WEBFLOW COPIED OUTPUT (If anything copied) ---
+${webflowPasteData}
+
+--- 4. CONSOLE ERRORS ---
+${consoleErrors}
+`;
+                            navigator.clipboard.writeText(report);
+                            alert("Bug Report Copied! Please paste this to the AI Agent.");
+                        },
+                        className: "w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-md font-bold transition-colors"
+                    }, "Generate & Copy Bug Report")
+                )
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(e(CodeToWebflowApp, null));
+    </script>
+</body>
+
+</html>
