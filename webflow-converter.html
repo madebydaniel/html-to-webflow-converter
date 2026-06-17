@@ -6,13 +6,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Code to Webflow Converter</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                blue: '#347de6',
+                light: '#e8f1fc',
+                dark: '#072245',
+                lighter: '#abc8f2'
+              }
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              anton: ['Anton', 'sans-serif']
+            }
+          }
+        }
+      }
+    </script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-    <!-- Babel CDN removed; code rewritten in plain JS -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
+            background-color: #ffffff;
         }
     </style>
 </head>
@@ -35,6 +55,22 @@
 
             function generateId() {
                 return Math.random().toString(36).substring(2, 11);
+            }
+
+            function generateDeterministicId(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    hash = (hash << 5) - hash + str.charCodeAt(i);
+                    hash |= 0;
+                }
+                const base36 = Math.abs(hash).toString(36);
+                let id = base36;
+                let i = 0;
+                while (id.length < 9) {
+                    id += str.charCodeAt(i % str.length).toString(36);
+                    i++;
+                }
+                return id.substring(0, 9);
             }
 
             const parseHtmlToWebflow = (htmlString) => {
@@ -138,7 +174,7 @@
                             const classIds = [];
                             clsArr.forEach(c => {
                                 if (!stylesMap.has(c)) {
-                                    stylesMap.set(c, generateId());
+                                    stylesMap.set(c, generateDeterministicId(c));
                                 }
                                 classIds.push(stylesMap.get(c));
                             });
@@ -189,7 +225,7 @@
                         const classIds = [];
                         clsArr.forEach(c => {
                             if (!stylesMap.has(c)) {
-                                stylesMap.set(c, generateId());
+                                stylesMap.set(c, generateDeterministicId(c));
                             }
                             classIds.push(stylesMap.get(c));
                         });
@@ -221,10 +257,14 @@
                             }
                         };
 
-                        if (el.hasAttributes() && nodeObj.data && nodeObj.data.attr) {
+                        if (el.hasAttributes() && nodeObj.data) {
                             for (const attr of el.attributes) {
                                 if (attr.name !== 'class' && attr.name !== 'style') {
-                                    nodeObj.data.attr[attr.name] = attr.value;
+                                    if (attr.name.startsWith('data-') || attr.name.startsWith('aria-')) {
+                                        nodeObj.data.xattr.push({ name: attr.name, value: attr.value });
+                                    } else {
+                                        nodeObj.data.attr[attr.name] = attr.value;
+                                    }
                                 }
                             }
                         }
@@ -489,87 +529,102 @@
             const [webflowPasteData, setWebflowPasteData] = useState('');
             const [consoleErrors, setConsoleErrors] = useState('');
 
-            return e("div", { className: "max-w-6xl mx-auto p-6 space-y-8" },
-                e("header", { className: "border-b pb-6 flex justify-between items-center" },
-                    e("div", null,
-                        e("h1", { className: "text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent" }, "Code to Webflow Converter"),
-                        e("p", { className: "text-gray-500 mt-2" }, "v26.5.27.01 Paste your HTML document with styles and scripts, and convert it into Webflow clipboard format.")
-                    )
+            return e("div", { className: "w-full mx-auto px-6 py-12 md:py-20 lg:py-24" },
+                // Header
+                e("header", { className: "mb-10 w-full" },
+                    e("h1", { className: "font-anton text-[40px] md:text-[56px] leading-[1.1] uppercase tracking-wide mb-6" }, 
+                        "CODE TO WEBFLOW ", e("br", { className: "hidden md:block" }), e("span", { className: "text-brand-blue" }, "CONVERTER.")
+                    ),
+                    e("p", { className: "text-lg text-gray-600 font-light max-w-full" }, 
+                        "Paste your raw HTML, CSS, and JS to immediately convert it into a fully structured Webflow clipboard format. Built with deterministic class hashing and safe element parsing."
+                    ),
+                    e("p", { className: "text-xs text-gray-400 mt-3 font-mono" }, "v.1.0.03")
                 ),
-                e("div", { className: "grid grid-cols-1 lg:grid-cols-2 gap-8" },
-                    e("div", { className: "flex flex-col space-y-4" },
-                        e("label", { className: "text-sm font-semibold text-gray-700" }, "Input HTML"),
+                
+                // Short Divider
+                e("div", { className: "w-16 h-1 bg-gray-200 mb-10" }),
+
+                // Left accent heading
+                e("div", { className: "flex items-center gap-4 mb-6" },
+                    e("div", { className: "w-1 h-8 bg-brand-blue" }),
+                    e("h3", { className: "text-xl font-bold tracking-tight text-brand-dark uppercase" }, "Converter Tool")
+                ),
+
+                // Grid
+                e("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10 mb-20" },
+                    // Left Column (Input)
+                    e("div", { className: "md:col-span-1 lg:col-span-2 flex flex-col space-y-4" },
+                        e("label", { className: "text-sm font-semibold text-gray-700" }, "Paste Raw HTML"),
                         e("textarea", {
-                            className: "w-full h-96 p-4 border border-gray-300 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm resize-none",
+                            className: "w-full h-[650px] p-4 border border-gray-200 rounded shadow-sm focus:ring-1 focus:ring-brand-blue focus:border-brand-blue font-mono text-sm resize-none bg-gray-50",
                             placeholder: "<html><body>...</body></html>",
                             value: inputHtml,
                             onChange: (event) => setInputHtml(event.target.value)
                         }),
                         e("button", {
                             onClick: handleConvert,
-                            className: "w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md font-medium transition-colors"
+                            className: "w-full py-4 px-6 bg-brand-blue hover:bg-brand-dark text-white rounded font-bold uppercase tracking-wider text-sm transition-colors border border-transparent hover:border-brand-dark flex items-center justify-center gap-2"
                         }, "Convert to Webflow")
                     ),
-                    e("div", { className: "flex flex-col space-y-6" },
-                        e("h2", { className: "text-xl font-bold text-gray-800" }, "Outputs"),
-                        e("div", { className: "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col items-start justify-between space-y-4" },
+                    // Right Column (Output)
+                    e("div", { className: "md:col-span-1 lg:col-span-1 flex flex-col space-y-6" },
+                        e("div", { className: "bg-white p-6 rounded shadow-sm border border-gray-100 flex flex-col space-y-5" },
                             e("div", null,
-                                e("h3", { className: "font-semibold text-gray-800" }, "Webflow Elements"),
-                                e("p", { className: "text-xs text-gray-500 mt-1" }, "Parsed DOM tree mapped to @webflow/X-Ray JSON structure. Paste this directly on the Webflow canvas.")
+                                e("h3", { className: "font-semibold text-brand-dark text-lg" }, "Webflow Elements"),
+                                e("p", { className: "text-sm text-gray-500 mt-1 leading-relaxed" }, "Parsed DOM tree mapped to @webflow/X-Ray JSON structure. Paste this directly on the Webflow canvas.")
                             ),
-                            e("div", { className: "w-full grid grid-cols-2 gap-2" },
+                            e("div", { className: "w-full grid grid-cols-1 gap-3" },
                                 e("button", {
                                     onClick: copyNativeWebflowTest,
-                                    className: "w-full py-2.5 px-4 rounded-lg font-medium transition-colors bg-purple-100 text-purple-700 hover:bg-purple-200"
+                                    className: "w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-xs transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200"
                                 }, "Test Native Snippet"),
                                 e("button", {
                                     onClick: copyWebflowToClipboard,
                                     disabled: !webflowData,
-                                    className: `w-full py-2.5 px-4 rounded-lg font-medium transition-colors ${!webflowData ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : copiedWf ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`
-                                }, copiedWf ? 'Copied!' : 'Copy Converted HTML')
+                                    className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-sm transition-colors flex items-center justify-center gap-2 ${!webflowData ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedWf ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-brand-blue border-2 border-brand-blue hover:bg-brand-light'}`
+                                }, copiedWf ? 'Copied to Clipboard!' : 'Copy Converted HTML')
                             )
                         ),
-                        e("div", { className: "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col items-start justify-between space-y-4" },
+                        e("div", { className: "bg-white p-6 rounded shadow-sm border border-gray-100 flex flex-col space-y-5" },
                             e("div", null,
-                                e("h3", { className: "font-semibold text-gray-800" }, "CSS Styles"),
-                                e("p", { className: "text-xs text-gray-500 mt-1" }, "Raw CSS extracted from <style> tags. Paste this in Webflow site settings or page head.")
+                                e("h3", { className: "font-semibold text-brand-dark text-lg" }, "Extracted CSS"),
+                                e("p", { className: "text-sm text-gray-500 mt-1 leading-relaxed" }, "Paste this in Webflow site settings or page settings 'Inside <head> tag'")
                             ),
-                            e("div", { className: "w-full flex space-x-3" },
-                                e("textarea", { readOnly: true, value: cssData, className: "w-full h-20 text-xs font-mono p-2 border rounded-md bg-gray-50 text-gray-600", placeholder: "Extracted CSS..." })
-                            ),
+                            e("textarea", { readOnly: true, value: cssData, className: "w-full h-24 text-xs font-mono p-3 border border-gray-200 rounded-md bg-gray-50 text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-blue", placeholder: "Extracted CSS..." }),
                             e("button", {
                                 onClick: () => copyTextToClipboard(cssData, setCopiedCss),
                                 disabled: !cssData,
-                                className: `w-full py-2.5 px-4 rounded-lg font-medium transition-colors ${!cssData ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : copiedCss ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`
-                            }, copiedCss ? 'Copied CSS!' : 'Copy CSS')
-                        ),
-                        e("div", { className: "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col items-start justify-between space-y-4" },
-                            e("div", null,
-                                e("h3", { className: "font-semibold text-gray-800" }, "JavaScript"),
-                                e("p", { className: "text-xs text-gray-500 mt-1" }, "Raw JavaScript extracted from <script> tags. Paste this in Webflow page body settings.")
+                                className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-xs transition-colors ${!cssData ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedCss ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`
+                            }, copiedCss ? 'Copied CSS!' : 'Copy CSS'),
+                            
+                            e("div", { className: "mt-2 pt-2 border-t border-gray-100" },
+                                e("h3", { className: "font-semibold text-brand-dark text-lg" }, "Extracted JavaScript"),
+                                e("p", { className: "text-sm text-gray-500 mt-1 leading-relaxed" }, "Paste this in Webflow site settings or page settings 'Before </body> tag'")
                             ),
-                            e("div", { className: "w-full flex space-x-3" },
-                                e("textarea", { readOnly: true, value: jsData, className: "w-full h-20 text-xs font-mono p-2 border rounded-md bg-gray-50 text-gray-600", placeholder: "Extracted JS..." })
-                            ),
+                            e("textarea", { readOnly: true, value: jsData, className: "w-full h-24 text-xs font-mono p-3 border border-gray-200 rounded-md bg-gray-50 text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-blue", placeholder: "Extracted JS..." }),
                             e("button", {
                                 onClick: () => copyTextToClipboard(jsData, setCopiedJs),
                                 disabled: !jsData,
-                                className: `w-full py-2.5 px-4 rounded-lg font-medium transition-colors ${!jsData ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : copiedJs ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`
+                                className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-xs transition-colors ${!jsData ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedJs ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`
                             }, copiedJs ? 'Copied JS!' : 'Copy JS')
                         )
                     )
                 ),
-                e("div", { className: "mt-12 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col space-y-6" },
-                    e("div", null,
-                        e("h2", { className: "text-2xl font-bold text-gray-800" }, "Bug Report Generator"),
-                        e("p", { className: "text-sm text-gray-500 mt-1" }, "Help us debug Webflow crashes by providing exactly what's happening.")
+                
+                // Bug Report Section (Styled as Callout)
+                e("div", { className: "bg-brand-light border-l-4 border-brand-blue p-8 rounded-r-lg flex flex-col space-y-6" },
+                    e("div", { className: "flex items-center gap-3" },
+                        e("svg", { xmlns: "http://www.w3.org/2000/svg", width: "24", height: "24", viewBox: "0 0 24 24", fill: "none", stroke: "#347de6", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, e("path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" }), e("path", { d: "M12 9v4" }), e("path", { d: "M12 17h.01" })),
+                        e("h2", { className: "text-2xl font-bold text-brand-dark" }, "Bug Report Generator")
                     ),
-                    e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6" },
+                    e("p", { className: "text-brand-dark font-medium max-w-2xl" }, "Help us debug Webflow crashes by providing exactly what's happening."),
+                    
+                    e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6 mt-2" },
                         e("div", { className: "flex flex-col space-y-2" },
-                            e("label", { className: "text-sm font-semibold text-gray-700" }, "1. Paste Webflow's Version"),
-                            e("p", { className: "text-xs text-gray-500" }, "Paste here after copying a node in Webflow."),
+                            e("label", { className: "text-sm font-semibold text-brand-dark" }, "1. Paste Webflow's Version"),
+                            e("p", { className: "text-xs text-brand-blue font-medium" }, "Paste here after copying a node in Webflow."),
                             e("textarea", {
-                                className: "w-full h-32 p-3 border border-gray-300 rounded-lg text-xs font-mono resize-y",
+                                className: "w-full h-32 p-3 border border-brand-lighter rounded bg-white/60 focus:bg-white text-xs font-mono resize-y focus:outline-none focus:ring-1 focus:ring-brand-blue",
                                 placeholder: "Cmd+V here from Webflow...",
                                 value: webflowPasteData,
                                 onChange: (e) => setWebflowPasteData(e.target.value),
@@ -587,10 +642,10 @@
                             })
                         ),
                         e("div", { className: "flex flex-col space-y-2" },
-                            e("label", { className: "text-sm font-semibold text-gray-700" }, "2. Paste Console Errors"),
-                            e("p", { className: "text-xs text-gray-500" }, "Paste the red stack trace from Webflow console."),
+                            e("label", { className: "text-sm font-semibold text-brand-dark" }, "2. Paste Console Errors"),
+                            e("p", { className: "text-xs text-brand-blue font-medium" }, "Paste the red stack trace from Webflow console."),
                             e("textarea", {
-                                className: "w-full h-32 p-3 border border-gray-300 rounded-lg text-xs font-mono resize-y",
+                                className: "w-full h-32 p-3 border border-brand-lighter rounded bg-white/60 focus:bg-white text-xs font-mono resize-y focus:outline-none focus:ring-1 focus:ring-brand-blue",
                                 placeholder: "Paste errors...",
                                 value: consoleErrors,
                                 onChange: (e) => setConsoleErrors(e.target.value)
@@ -616,8 +671,29 @@ ${consoleErrors}
                             navigator.clipboard.writeText(report);
                             alert("Bug Report Copied! Please paste this to the AI Agent.");
                         },
-                        className: "w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-md font-bold transition-colors"
+                        className: "w-full md:w-auto self-end py-3 px-6 bg-brand-dark hover:bg-black text-white rounded font-bold uppercase tracking-wider text-sm transition-colors mt-2"
                     }, "Generate & Copy Bug Report")
+                ),
+                e("footer", { className: "mt-16 border-t pt-8 pb-12 flex flex-col items-center justify-center space-y-4 text-center" },
+                    e("div", { className: "text-gray-500 text-sm" }, 
+                        "Made by ", 
+                        e("a", { href: "https://bydan.us", target: "_blank", rel: "noopener noreferrer", className: "text-blue-600 font-medium hover:underline" }, "Dan Design"),
+                        ". This project is open source and free for anyone to use, download, remix, and reuse."
+                    ),
+                    e("div", { className: "flex space-x-6 mt-4" },
+                        e("a", { href: "https://www.linkedin.com/in/madebydaniel/", target: "_blank", rel: "noopener noreferrer", className: "text-gray-400 hover:text-blue-700 transition-colors" }, 
+                            e("svg", { width: "24", height: "24", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className: "w-5 h-5" }, e("path", { d: "M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" }), e("rect", { width: "4", height: "12", x: "2", y: "9" }), e("circle", { cx: "4", cy: "4", r: "2" }))
+                        ),
+                        e("a", { href: "https://www.instagram.com/bydanco/", target: "_blank", rel: "noopener noreferrer", className: "text-gray-400 hover:text-pink-600 transition-colors" }, 
+                            e("svg", { width: "24", height: "24", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className: "w-5 h-5" }, e("rect", { width: "20", height: "20", x: "2", y: "2", rx: "5", ry: "5" }), e("path", { d: "M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" }), e("line", { x1: "17.5", x2: "17.51", y1: "6.5", y2: "6.5" }))
+                        ),
+                        e("a", { href: "https://x.com/ByDanCo", target: "_blank", rel: "noopener noreferrer", className: "text-gray-400 hover:text-black transition-colors" }, 
+                            e("svg", { width: "24", height: "24", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className: "w-5 h-5" }, e("path", { d: "M4 4l11.733 16h4.267l-11.733 -16z" }), e("path", { d: "M4 20l6.768 -6.768m2.46 -2.46l6.772 -6.772" }))
+                        ),
+                        e("a", { href: "https://www.youtube.com/@dandesignco", target: "_blank", rel: "noopener noreferrer", className: "text-gray-400 hover:text-red-600 transition-colors" }, 
+                            e("svg", { width: "24", height: "24", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className: "w-5 h-5" }, e("path", { d: "M2.5 7.1c.3-1.5 1.5-2.8 3-3.1C8.2 3.6 12 3.6 12 3.6s3.8 0 6.5.4c1.5.3 2.7 1.6 3 3.1.5 2.1.5 6.4.5 6.4s0 4.3-.5 6.4c-.3 1.5-1.5 2.8-3 3.1-2.7.4-6.5.4-6.5.4s-3.8 0-6.5-.4c-1.5-.3-2.7-1.6-3-3.1C2 17.8 2 13.5 2 13.5s0-4.3.5-6.4z" }), e("polygon", { points: "9.75 15.02 15.5 11.5 9.75 7.98 9.75 15.02" }))
+                        )
+                    )
                 )
             );
         }
