@@ -21,8 +21,8 @@ The Code to Webflow Converter is a standalone utility designed to bridge the gap
 For a complete walkthrough on how to use this tool alongside AI to build complex Webflow layouts, check out the official guide:
 **[Read the Full Guide on bydan.us](https://www.bydan.us/resources/html-to-webflow-converter)**
 
-*(When your YouTube video is ready, replace `YOUTUBE_VIDEO_ID_HERE` with your actual video ID!)*
-[![Watch the Tutorial](https://img.youtube.com/vi/YOUTUBE_VIDEO_ID_HERE/maxresdefault.jpg)](https://youtu.be/YOUTUBE_VIDEO_ID_HERE)
+
+[![Watch the Tutorial](https://img.youtube.com/vi/3NaCTm4DuB8/maxresdefault.jpg)](https://youtu.be/3NaCTm4DuB8)
 
 ---
 
