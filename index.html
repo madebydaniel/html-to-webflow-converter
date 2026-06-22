@@ -58,19 +58,17 @@
             }
 
             function generateDeterministicId(str) {
-                let hash = 0;
+                let hash1 = 0, hash2 = 0, hash3 = 0;
                 for (let i = 0; i < str.length; i++) {
-                    hash = (hash << 5) - hash + str.charCodeAt(i);
-                    hash |= 0;
+                    const char = str.charCodeAt(i);
+                    hash1 = ((hash1 << 5) - hash1) + char; hash1 |= 0;
+                    hash2 = ((hash2 << 4) + hash2) ^ char; hash2 |= 0;
+                    hash3 = ((hash3 << 3) - hash3) + char; hash3 |= 0;
                 }
-                const base36 = Math.abs(hash).toString(36);
-                let id = base36;
-                let i = 0;
-                while (id.length < 9) {
-                    id += str.charCodeAt(i % str.length).toString(36);
-                    i++;
-                }
-                return id.substring(0, 9);
+                const hex1 = Math.abs(hash1).toString(16).padStart(8, '0');
+                const hex2 = Math.abs(hash2).toString(16).padStart(8, '0');
+                const hex3 = Math.abs(hash3).toString(16).padStart(8, '0');
+                return (hex1 + hex2 + hex3).substring(0, 24);
             }
 
             const parseHtmlToWebflow = (htmlString) => {
@@ -102,20 +100,40 @@
                                     if (match) {
                                         const className = match[1].substring(1);
                                         const pseudo = match[2];
-                                        const cssText = rule.style.cssText;
+                                        let styleLessText = "";
+                                        let customCssText = "";
+
+                                        for (let j = 0; j < rule.style.length; j++) {
+                                            const propName = rule.style[j];
+                                            const propValue = rule.style.getPropertyValue(propName);
+                                            const propPriority = rule.style.getPropertyPriority(propName) ? " !important" : "";
+                                            const declaration = `${propName}: ${propValue}${propPriority};`;
+                                            
+                                            if (declaration.includes("url(")) {
+                                                customCssText += (customCssText ? " " : "") + declaration;
+                                            } else {
+                                                styleLessText += (styleLessText ? " " : "") + declaration;
+                                            }
+                                        }
 
                                         if (!parsedCssRules[className]) {
                                             parsedCssRules[className] = { styleLess: "", variants: {} };
                                         }
 
-                                        if (pseudo === ':hover') {
-                                            parsedCssRules[className].variants["main_hover"] = { styleLess: cssText };
-                                        } else if (pseudo === ':active') {
-                                            parsedCssRules[className].variants["main_active"] = { styleLess: cssText };
-                                        } else if (pseudo === ':focus') {
-                                            parsedCssRules[className].variants["main_focus"] = { styleLess: cssText };
-                                        } else {
-                                            parsedCssRules[className].styleLess += (parsedCssRules[className].styleLess ? " " : "") + cssText;
+                                        if (styleLessText) {
+                                            if (pseudo === ':hover') {
+                                                parsedCssRules[className].variants["main_hover"] = { styleLess: styleLessText };
+                                            } else if (pseudo === ':active') {
+                                                parsedCssRules[className].variants["main_active"] = { styleLess: styleLessText };
+                                            } else if (pseudo === ':focus') {
+                                                parsedCssRules[className].variants["main_focus"] = { styleLess: styleLessText };
+                                            } else {
+                                                parsedCssRules[className].styleLess += (parsedCssRules[className].styleLess ? " " : "") + styleLessText;
+                                            }
+                                        }
+
+                                        if (customCssText) {
+                                            rulesToKeep.push(`${rule.selectorText} { ${customCssText} }`);
                                         }
                                     } else {
                                         rulesToKeep.push(rule.cssText);
@@ -532,13 +550,13 @@
             return e("div", { className: "w-full mx-auto px-6 py-12 md:py-20 lg:py-24" },
                 // Header
                 e("header", { className: "mb-10 w-full" },
-                    e("h1", { className: "font-anton text-[40px] md:text-[56px] leading-[1.1] uppercase tracking-wide mb-6" }, 
-                        "CODE TO WEBFLOW ", e("br", { className: "hidden md:block" }), e("span", { className: "text-brand-blue" }, "CONVERTER.")
+                    e("h1", { className: "font-anton text-[6rem] leading-[1.1] uppercase tracking-wide mb-6" }, 
+                        "CODE TO WEBFLOW ", e("span", { className: "text-brand-blue" }, "CONVERTER.")
                     ),
                     e("p", { className: "text-lg text-gray-600 font-light max-w-full" }, 
-                        "Paste your raw HTML, CSS, and JS to immediately convert it into a fully structured Webflow clipboard format. Built with deterministic class hashing and safe element parsing."
+                        "Paste your raw HTML, CSS, and JS to immediately convert it into a fully structured Webflow clipboard format."
                     ),
-                    e("p", { className: "text-xs text-gray-400 mt-3 font-mono" }, "v.1.0.03")
+                    e("p", { className: "text-xs text-gray-400 mt-3 font-mono" }, "v.1.0.10")
                 ),
                 
                 // Short Divider
@@ -617,7 +635,7 @@
                         e("svg", { xmlns: "http://www.w3.org/2000/svg", width: "24", height: "24", viewBox: "0 0 24 24", fill: "none", stroke: "#347de6", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, e("path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" }), e("path", { d: "M12 9v4" }), e("path", { d: "M12 17h.01" })),
                         e("h2", { className: "text-2xl font-bold text-brand-dark" }, "Bug Report Generator")
                     ),
-                    e("p", { className: "text-brand-dark font-medium max-w-2xl" }, "Help us debug Webflow crashes by providing exactly what's happening."),
+                    e("p", { className: "text-brand-dark font-medium w-full" }, "Running into Webflow errors or want to develop this tool further? Generate a comprehensive bug report below and paste it to your favorite AI Agent to easily debug Webflow clipboard crashes."),
                     
                     e("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-6 mt-2" },
                         e("div", { className: "flex flex-col space-y-2" },
@@ -675,10 +693,21 @@ ${consoleErrors}
                     }, "Generate & Copy Bug Report")
                 ),
                 e("footer", { className: "mt-16 border-t pt-8 pb-12 flex flex-col items-center justify-center space-y-4 text-center" },
+                    e("div", { className: "flex flex-col md:flex-row md:space-x-4 space-y-2 md:space-y-0 text-sm mb-2" },
+                        e("a", { href: "https://www.bydan.us/resources/html-to-webflow-converter", target: "_blank", rel: "noopener noreferrer", className: "text-brand-dark hover:text-blue-600 font-bold hover:underline flex items-center justify-center" }, 
+                            e("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className: "mr-1.5" }, e("path", { d: "M2.5 7.1c.3-1.5 1.5-2.8 3-3.1C8.2 3.6 12 3.6 12 3.6s3.8 0 6.5.4c1.5.3 2.7 1.6 3 3.1.5 2.1.5 6.4.5 6.4s0 4.3-.5 6.4c-.3 1.5-1.5 2.8-3 3.1-2.7.4-6.5.4-6.5.4s-3.8 0-6.5-.4c-1.5-.3-2.7-1.6-3-3.1C2 17.8 2 13.5 2 13.5s0-4.3.5-6.4z" }), e("polygon", { points: "9.75 15.02 15.5 11.5 9.75 7.98 9.75 15.02" })),
+                            "Watch Tutorial & Guide"
+                        ),
+                        e("span", { className: "hidden md:inline text-gray-300" }, "|"),
+                        e("a", { href: "https://github.com/madebydaniel/html-to-webflow-converter", target: "_blank", rel: "noopener noreferrer", className: "text-brand-dark hover:text-blue-600 font-bold hover:underline flex items-center justify-center" }, 
+                            e("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className: "mr-1.5" }, e("path", { d: "M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" })),
+                            "View on GitHub"
+                        )
+                    ),
                     e("div", { className: "text-gray-500 text-sm" }, 
                         "Made by ", 
                         e("a", { href: "https://bydan.us", target: "_blank", rel: "noopener noreferrer", className: "text-blue-600 font-medium hover:underline" }, "Dan Design"),
-                        ". This project is open source and free for anyone to use, download, remix, and reuse."
+                        ". Released under the MIT License — free for anyone to use, download, remix, and reuse."
                     ),
                     e("div", { className: "flex space-x-6 mt-4" },
                         e("a", { href: "https://www.linkedin.com/in/madebydaniel/", target: "_blank", rel: "noopener noreferrer", className: "text-gray-400 hover:text-blue-700 transition-colors" }, 
