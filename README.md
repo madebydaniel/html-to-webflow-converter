@@ -69,3 +69,14 @@ Because Webflow's clipboard format is constantly evolving, this tool includes a 
 **Released under the MIT License.**
 
 This project is completely open source and free. You are encouraged to use, download, modify, remix, and distribute it however you see fit. Whether you are building internal tools for your agency or extending it for the community, it is yours to build upon without restriction.
+
+---
+
+### Disclaimer
+
+This tool was originally created as an internal utility by [Dan Design](https://bydan.us) to streamline our own development workflows. 
+
+**Please note:**
+- **No Affiliation:** This project is an independent, community-driven tool. It is not affiliated with, endorsed by, or in partnership with Webflow in any way. "Webflow" is a registered trademark of Webflow, Inc.
+- **"As-Is" Basis:** This tool is provided "as-is" without warranties of any kind. It is not guaranteed to work flawlessly. Use it at your own discretion and risk. Dan Design is not liable for any issues, data loss, or canvas crashes that may occur.
+- **Accuracy:** Webflow's proprietary clipboard schemas are undocumented and change frequently. Because of this, the functionality of this tool, as well as the technical details outlined in this document, may fall out of date or contain inaccuracies.
