@@ -46,6 +46,8 @@
 
         function CodeToWebflowApp() {
             const [inputHtml, setInputHtml] = useState('');
+            const [conversionNotes, setConversionNotes] = useState('');
+            const [preserveCss, setPreserveCss] = useState(false);
             const [webflowData, setWebflowData] = useState(null);
             const [cssData, setCssData] = useState('');
             const [jsData, setJsData] = useState('');
@@ -82,76 +84,64 @@
 
                 const parsedCssRules = {};
 
-                doc.querySelectorAll('style').forEach(style => {
-                    const text = style.textContent.trim();
-                    if (text) {
-                        const tempStyle = document.createElement('style');
-                        tempStyle.textContent = text;
-                        document.head.appendChild(tempStyle);
-
-                        try {
-                            const sheet = tempStyle.sheet;
-                            const rulesToKeep = [];
-
-                            for (let i = 0; i < sheet.cssRules.length; i++) {
-                                const rule = sheet.cssRules[i];
-                                if (rule.type === CSSRule.STYLE_RULE) {
-                                    const match = /^(\.[a-zA-Z0-9_-]+)(:hover|:active|:focus)?$/.exec(rule.selectorText);
-                                    if (match) {
-                                        const className = match[1].substring(1);
-                                        const pseudo = match[2];
-                                        let styleLessText = "";
-                                        let customCssText = "";
-
-                                        for (let j = 0; j < rule.style.length; j++) {
-                                            const propName = rule.style[j];
-                                            const propValue = rule.style.getPropertyValue(propName);
-                                            const propPriority = rule.style.getPropertyPriority(propName) ? " !important" : "";
-                                            const declaration = `${propName}: ${propValue}${propPriority};`;
-                                            
-                                            if (declaration.includes("url(")) {
-                                                customCssText += (customCssText ? " " : "") + declaration;
-                                            } else {
-                                                styleLessText += (styleLessText ? " " : "") + declaration;
-                                            }
-                                        }
-
-                                        if (!parsedCssRules[className]) {
-                                            parsedCssRules[className] = { styleLess: "", variants: {} };
-                                        }
-
-                                        if (styleLessText) {
-                                            if (pseudo === ':hover') {
-                                                parsedCssRules[className].variants["main_hover"] = { styleLess: styleLessText };
-                                            } else if (pseudo === ':active') {
-                                                parsedCssRules[className].variants["main_active"] = { styleLess: styleLessText };
-                                            } else if (pseudo === ':focus') {
-                                                parsedCssRules[className].variants["main_focus"] = { styleLess: styleLessText };
-                                            } else {
-                                                parsedCssRules[className].styleLess += (parsedCssRules[className].styleLess ? " " : "") + styleLessText;
-                                            }
-                                        }
-
-                                        if (customCssText) {
-                                            rulesToKeep.push(`${rule.selectorText} { ${customCssText} }`);
-                                        }
-                                    } else {
-                                        rulesToKeep.push(rule.cssText);
-                                    }
-                                } else {
-                                    rulesToKeep.push(rule.cssText);
-                                }
-                            }
-
-                            if (rulesToKeep.length > 0) {
-                                extractedStyles.push(rulesToKeep.join('\n'));
-                            }
-                        } catch (e) {
-                            extractedStyles.push(text);
-                        }
-
-                        tempStyle.remove();
+                const notes=[];
+                const nativeFonts=doc.querySelector('meta[name="webflow-font-provider"][content="native"]');
+                const headLinks=Array.from(doc.head.querySelectorAll('link[rel="stylesheet"],link[rel="preconnect"]')).filter(el=>!nativeFonts||!/^https:\/\/fonts\.(googleapis|gstatic)\.com/.test(el.href)).map(el=>el.outerHTML);
+                if(nativeFonts)notes.push('Fonts are supplied by native Webflow font settings. Enable the required families, weights and italics there.');
+                const embeddedClasses=new Set(Array.from(doc.querySelectorAll('svg,svg *,video,video *,audio,audio *,canvas,canvas *,iframe,iframe *')).flatMap(el=>Array.from(el.classList)));
+                // Split serialized declarations without expanding variable-based shorthands into empty longhands.
+                function splitTop(text,separator){let depth=0,quote='',start=0,out=[];for(let i=0;i<text.length;i++){const c=text[i];if(quote){if(c==='\\'){i++;continue;}if(c===quote)quote='';continue;}if(c==='"'||c==="'"){quote=c;continue;}if(c==='('||c==='[')depth++;if(c===')'||c===']')depth--;if(c===separator&&!depth){out.push(text.slice(start,i).trim());start=i+1;}}out.push(text.slice(start).trim());return out.filter(Boolean);}
+                function declarations(style){return splitTop(style.cssText,';').map(text=>{const i=text.indexOf(':');return {name:text.slice(0,i).trim(),value:text.slice(i+1).trim(),text:text+';'};}).filter(d=>d.name&&d.value);}
+                function convertRule(rule,breakpoint='main'){
+                    if(rule.type===CSSRule.MEDIA_RULE){
+                        const match=/^\(max-width:\s*(991|767|479)px\)$/.exec(rule.conditionText);
+                        if(!match||breakpoint!=='main'){notes.push('Kept conditional media query in custom CSS: '+rule.conditionText);return rule.cssText;}
+                        const key={'991':'medium','767':'small','479':'tiny'}[match[1]];
+                        const remaining=Array.from(rule.cssRules,r=>convertRule(r,key)).filter(Boolean);
+                        return remaining.length?'@media '+rule.conditionText+'{'+remaining.join('\n')+'}':'';
                     }
+                    if(rule.type!==CSSRule.STYLE_RULE)return rule.cssText;
+                    const selectors=splitTop(rule.selectorText,',');const remaining=[];
+                    for(const selector of selectors){
+                        const match=/^\.([a-zA-Z0-9_-]+)(:hover|:active|:focus)?$/.exec(selector);
+                        if(!match||embeddedClasses.has(match[1])||/^v28-hero_cloud/.test(match[1])||!doc.querySelector('.'+CSS.escape(match[1]))){remaining.push(selector+'{'+rule.style.cssText+'}');continue;}
+                        const name=match[1],pseudo=match[2],native=[],custom=[];
+                        if(declarations(rule.style).some(d=>d.name==='all'&&d.value==='revert')){
+                            // Put isolation resets below unlayered native Webflow styles regardless of head placement.
+                            remaining.push('@layer webflow-import-reset{'+selector+'{'+rule.style.cssText+'}}');continue;
+                        }
+                        for(const d of declarations(rule.style)){
+                            // CSS variables remain CSS variables, rather than pretending to be Webflow variables.
+                            if(d.name==='font'){
+                                const familyVariable=/var\([^()]+\)$/.exec(d.value);
+                                const probe=document.createElement('span').style;
+                                probe.font=familyVariable?d.value.replace(familyVariable[0],'Arial'):d.value;
+                                if(!probe.fontSize){custom.push(d.text);notes.push('Kept unsupported font shorthand in custom CSS.');continue;}
+                                for(const key of ['font-style','font-weight','font-stretch','font-size','line-height','font-family']){
+                                    const value=key==='font-family'&&familyVariable?resolveFontFamily(familyVariable[0]):probe.getPropertyValue(key);
+                                    if(value)(key==='font-family'?custom:native).push(key+': '+value+';');
+                                }
+                            }else if(d.name==='font-family'){const value=resolveFontFamily(d.value);custom.push('font-family: '+value+';');}else if(d.name==='inset'){const probe=document.createElement('span').style;probe.inset=d.value;for(const key of ['top','right','bottom','left'])native.push(key+': '+probe.getPropertyValue(key)+';');}else if(d.name.startsWith('--')||/url\(/i.test(d.value))custom.push(d.text);else native.push(d.text);
+                        }
+                        const record=parsedCssRules[name]||(parsedCssRules[name]={styleLess:'',variants:{}});
+                        const key=breakpoint+(pseudo?'_'+pseudo.slice(1):'');
+                        if(native.length){if(key==='main')record.styleLess+=' '+native.join(' ');else{const variant=record.variants[key]||(record.variants[key]={styleLess:''});variant.styleLess+=' '+native.join(' ');}}
+                        if(custom.length)remaining.push(selector+'{'+custom.join(' ')+'}');
+                    }
+                    return remaining.join('\n');
+                }
+                const originalStyles=[];
+                const fontVariables=new Map();
+                for(const st of doc.querySelectorAll('style'))for(const match of st.textContent.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+);/g))fontVariables.set(match[1],match[2].trim());
+                function resolveFontFamily(value){let previous;for(let i=0;i<8;i++){previous=value;value=value.replace(/var\((--[\w-]+)(?:,\s*([^()]+))?\)/g,(all,key,fallback)=>fontVariables.get(key)||fallback||all);if(value===previous)break;}return value;}
+
+                doc.querySelectorAll('style').forEach(style=>{
+                    const text=style.textContent.trim();originalStyles.push(text);
+                    // Parse in an isolated document: input styles must never restyle the converter itself.
+                    const sandbox=document.implementation.createHTMLDocument('CSS parser');
+                    const tempStyle=sandbox.createElement('style');tempStyle.textContent=text;sandbox.head.appendChild(tempStyle);
+                    try{const css=Array.from(tempStyle.sheet.cssRules,r=>convertRule(r)).filter(Boolean).join('\n');if(css)extractedStyles.push(css);}
+                    catch(error){extractedStyles.push(text);notes.push('Preserved stylesheet after parsing error: '+error.message);}
                     style.remove();
                 });
 
@@ -201,12 +191,14 @@
                                 _id: id,
                                 type: 'HtmlEmbed',
                                 tag: 'div',
-                                classes: classIds,
+                                classes: [],
                                 children: [],
+                                v: el.outerHTML,
                                 data: {
+                                    search:{exclude:true},insideRTE:false,displayName:'',attr:{id:''},xattr:[],visibility:{conditions:[]},
                                     embed: {
                                         type: 'html',
-                                        content: el.outerHTML
+                                        meta:{html:el.outerHTML,div:false,script:false,compilable:false,iframe:originalTag==='iframe'}
                                     }
                                 }
                             };
@@ -278,8 +270,8 @@
                         if (el.hasAttributes() && nodeObj.data) {
                             for (const attr of el.attributes) {
                                 if (attr.name !== 'class' && attr.name !== 'style') {
-                                    if (attr.name.startsWith('data-') || attr.name.startsWith('aria-')) {
-                                        nodeObj.data.xattr.push({ name: attr.name, value: attr.value });
+                                    if (attr.name.startsWith('data-') || attr.name.startsWith('aria-') || attr.name === 'hidden') {
+                                        nodeObj.data.xattr.push({ name: attr.name, value: attr.name==='hidden'?'hidden':attr.value });
                                     } else {
                                         nodeObj.data.attr[attr.name] = attr.value;
                                     }
@@ -372,7 +364,10 @@
                     nodes.push(masterParent);
                 }
 
-                const generatedStyles = Array.from(stylesMap.entries()).map(([name, id]) => {
+                for(const el of doc.querySelectorAll('body [class]'))for(const name of el.classList)if(!stylesMap.has(name))stylesMap.set(name,generateDeterministicId(name));
+                function normalizeDeclarations(text){const values=new Map();for(const d of splitTop(text,';')){const i=d.indexOf(':');if(i<0)continue;const key=d.slice(0,i).trim();values.delete(key);values.set(key,d.slice(i+1).trim());}return Array.from(values,([key,value])=>key+': '+value+';').join(' ');}
+                const cssOrder=Object.keys(parsedCssRules);
+                const generatedStyles = Array.from(stylesMap.entries()).sort((a,b)=>{const ia=cssOrder.indexOf(a[0]),ib=cssOrder.indexOf(b[0]);return (ia<0?1e9:ia)-(ib<0?1e9:ib);}).map(([name, id]) => {
                     const rules = parsedCssRules[name] || { styleLess: "", variants: {} };
                     return {
                         _id: id,
@@ -381,17 +376,26 @@
                         name: name,
                         namespace: "",
                         comb: "",
-                        styleLess: rules.styleLess.trim(),
-                        variants: rules.variants,
+                        styleLess: normalizeDeclarations(rules.styleLess),
+                        variants: Object.fromEntries(Object.entries(rules.variants).map(([key,value])=>[key,{styleLess:normalizeDeclarations(value.styleLess)}])),
                         children: [],
                         createdBy: "5ed5cf99e1889f51a8252df4",
                         selector: null
                     };
                 });
 
+                const cssExport=preserveCss?originalStyles.join('\n'):extractedStyles.join('\n');
+                const headExport=headLinks.join('\n')+(cssExport?'\n<style>\n'+cssExport.trim()+'\n</style>':'');
+                const jsExport=scripts.join('\n').trim();
+                if(headExport.length>50000)notes.push('Head output exceeds 50,000 characters; use an externally hosted stylesheet or split embeds.');
+                if(jsExport.length>50000)notes.push('JavaScript output exceeds 50,000 characters; use an externally hosted script or split embeds.');
+                if(jsExport.includes('const importedEmbeds='))notes.push('Input contains an SVG/video restoration payload. It is preserved; remove it from your source if you supply those assets manually.');
+                notes.push('Scripts preserved unchanged. Check existing GSAP imports before pasting.');
+                if(preserveCss)notes.push('Full CSS fallback enabled: exact CSS order is retained, but it can override changes made in Designer.');
                 return {
-                    cssText: extractedStyles.length > 0 ? `<style>\n${extractedStyles.join('\n').trim()}\n</style>` : '',
-                    jsText: scripts.join('\n').trim(),
+                    notes: [...new Set(notes)].join('\n'),
+                    cssText: headExport,
+                    jsText: jsExport,
                     webflowJson: {
                         type: "@webflow/XscpData",
                         payload: {
@@ -418,10 +422,12 @@
                 };
             };
 
+            window.convertHtmlToWebflow=parseHtmlToWebflow;
             const handleConvert = () => {
                 if (!inputHtml.trim()) return;
                 try {
                     const result = parseHtmlToWebflow(inputHtml);
+                    setConversionNotes(result.notes);
                     setWebflowData(result.webflowJson);
                     setCssData(result.cssText);
                     setJsData(result.jsText);
@@ -579,6 +585,7 @@
                             value: inputHtml,
                             onChange: (event) => setInputHtml(event.target.value)
                         }),
+                        e("label", {className:"text-sm text-gray-700"},e("input",{type:"checkbox",checked:preserveCss,onChange:event=>setPreserveCss(event.target.checked)})," Keep full original CSS as a fallback (overrides native Designer styles)"),
                         e("button", {
                             onClick: handleConvert,
                             className: "w-full py-4 px-6 bg-brand-blue hover:bg-brand-dark text-white rounded font-bold uppercase tracking-wider text-sm transition-colors border border-transparent hover:border-brand-dark flex items-center justify-center gap-2"
@@ -589,6 +596,7 @@
                         e("div", { className: "bg-white p-6 rounded shadow-sm border border-gray-100 flex flex-col space-y-5" },
                             e("div", null,
                                 e("h3", { className: "font-semibold text-brand-dark text-lg" }, "Webflow Elements"),
+                                conversionNotes ? e("pre",{className:"text-xs whitespace-pre-wrap text-gray-700 mt-3",role:"status"},conversionNotes):null,
                                 e("p", { className: "text-sm text-gray-500 mt-1 leading-relaxed" }, "Parsed DOM tree mapped to @webflow/X-Ray JSON structure. Paste this directly on the Webflow canvas.")
                             ),
                             e("div", { className: "w-full grid grid-cols-1 gap-3" },
@@ -605,7 +613,7 @@
                         ),
                         e("div", { className: "bg-white p-6 rounded shadow-sm border border-gray-100 flex flex-col space-y-5" },
                             e("div", null,
-                                e("h3", { className: "font-semibold text-brand-dark text-lg" }, "Extracted CSS"),
+                                e("h3", { className: "font-semibold text-brand-dark text-lg" }, "Head code: fonts + custom CSS"),
                                 e("p", { className: "text-sm text-gray-500 mt-1 leading-relaxed" }, "Paste this in Webflow site settings or page settings 'Inside <head> tag'")
                             ),
                             e("textarea", { readOnly: true, value: cssData, className: "w-full h-24 text-xs font-mono p-3 border border-gray-200 rounded-md bg-gray-50 text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-blue", placeholder: "Extracted CSS..." }),
