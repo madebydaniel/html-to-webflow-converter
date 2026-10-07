@@ -1,82 +1,128 @@
 # Code to Webflow Converter
 
-**[👉 Try the tool live here for free!](https://html-to-webflow-converter-4ne.pages.dev)** (No download or installation required)
+**[Try the live tool](https://html-to-webflow-converter-4ne.pages.dev)** — no installation required.
 
-The Code to Webflow Converter is a standalone utility designed to bridge the gap between AI-generated (or raw) web code and Webflow's proprietary visual canvas. It allows you to skip the tedious process of manually recreating nodes and styles by translating standard web code directly into Webflow's clipboard format.
+Convert raw HTML, embedded CSS, and JavaScript into a Webflow clipboard payload, plus separate head and footer code. Supported elements and class styles can be edited in the Designer. Styles that remain custom CSS must be edited in code.
 
----
+This is a migration aid, not a complete browser-to-Webflow translator. Check the imported result in the Designer and on the published site.
 
-### What It Can Do
+## What it converts
 
-- **Puts Code Right into the Designer:** You can paste in raw HTML, and the tool will instantly translate it so you can paste it directly onto the Webflow Designer canvas. It pulls standard styles straight into the Webflow GUI, allowing you to click and visually edit them immediately.
-- **Handles Complex CSS:** Whatever Webflow's visual GUI can't natively accept on-paste (like complex nested selectors, hover states, or pseudo-classes like `:nth-child`), the tool smartly parses out into a clean, separate CSS block. You can simply copy and drop this right into your Webflow Page Settings.
-- **Preserves Your Structure:** It ensures your `id`s and custom `data-attributes` are perfectly moved over to the Webflow canvas, ensuring your scripts, interactions, or third-party integrations (like Relume or Finsweet) continue to work seamlessly.
-- **Smart Class Handling:** Built for component-based workflows, it uses deterministic class hashing. This means that if you paste the same generated component across 10 different pages over the course of a week, Webflow won't clutter your project by auto-creating duplicate classes like `.faq-wrap-2` or `.faq-wrap-3`.
-- **Isolates JavaScript:** It automatically strips out any `<script>` tags from your raw HTML and packages them up nicely so you can quickly paste them into Webflow's 'Before `</body>` tag' section.
+### Elements and attributes
 
----
+- Maps standard HTML into Webflow elements, including headings, paragraphs, images, links, and line breaks.
+- Preserves classes, IDs, `data-*` attributes, and ARIA attributes in the generated payload.
+- Exports `hidden` as a custom attribute so scripts can toggle it after publishing.
+- Packages SVG, video, audio, canvas, and iframe elements as HTML embeds. Their contents remain code, rather than individually editable Designer elements.
+- Uses stable class IDs derived from class names. This makes generated IDs consistent across conversions; it does **not** guarantee that Webflow will never rename or duplicate classes in an existing project.
 
-### Video Tutorial & Guide
+### Native class styles
 
-For a complete walkthrough on how to use this tool alongside AI to build complex Webflow layouts, check out the official guide:
-**[Read the Full Guide on bydan.us](https://www.bydan.us/resources/html-to-webflow-converter)**
+The converter handles:
 
+- Individual class selectors, such as `.card`.
+- Comma-separated individual class selectors, such as `.card, .panel`.
+- `:hover`, `:active`, and `:focus` states on individual classes.
+- Exact `max-width` queries at **991px**, **767px**, and **479px**, mapped to Webflow breakpoint variants.
+- Font and inset shorthand expansion, plus repeated declaration cleanup so the last declaration for a property wins.
 
-[![Watch the Tutorial](https://img.youtube.com/vi/3NaCTm4DuB8/maxresdefault.jpg)](https://youtu.be/3NaCTm4DuB8)
+Input CSS is parsed in an isolated document so it cannot restyle the converter itself.
 
----
+### Custom CSS and head dependencies
 
-### How to Use It
+The head export retains rules and declarations that are not converted to native styles, including:
 
-1. **Input:** Paste your raw HTML structure into the **Paste Raw HTML** box.
-2. **Convert:** Click **Convert to Webflow**. The tool will instantly parse the DOM and generate the Webflow payload.
-3. **Copy & Paste Structure:** Click **Copy Converted HTML**, then navigate directly to your Webflow designer canvas, select a container, and press `Cmd+V` / `Ctrl+V`. The structure will appear instantly.
-4. **Copy & Paste CSS/JS:** If your input contained complex styles or scripts, copy them using the respective output buttons and paste them into Webflow's Page Settings (inside the `<head>` tag for CSS, and before the `</body>` tag for JS).
+- Compound, descendant, attribute, and other complex selectors.
+- Unsupported pseudo-classes and pseudo-elements.
+- Other media queries and conditional rules.
+- CSS variable definitions and declarations containing `url()`.
+- Font-family assignments, with resolvable CSS variables replaced by their declared values.
+- Rules for embedded graphics and classes absent from the initial HTML, including elements created later by JavaScript.
 
----
+Stylesheet and preconnect links from the input head are included in the head export. Linked external stylesheets are **not** fetched or converted into Designer styles.
 
-### Technical Details & Webflow Quirks
+The current build also includes compatibility handling for isolation resets and selected cloud-animation classes. It does not perform general cascade-equivalence analysis for arbitrary pages.
 
-Webflow's clipboard format uses strict, proprietary schemas. This tool handles several complex translation layers so you don't have to:
+### JavaScript
 
-- **Node IDs vs. Class IDs:** Webflow internally uses two entirely different ID systems. Elements (Nodes) use short 9-character base36 strings (e.g., `kwqt24xk8`), while Classes/Styles use strict 24-character hexadecimal MongoDB ObjectIDs (e.g., `5ed5cf99e1889f51a8252df4`).
-- **Deterministic Hashing:** To prevent Webflow from renaming your classes (appending `-2` or `-3`) when pasting elements across different sessions, this tool calculates three separate bitwise hashes of your class name and stitches them into a perfectly compliant, persistent 24-character hex string.
-- **Ghost Styles:** When CSS applies external URLs (like `background-image`), Webflow's GUI can "ghost" the style—rendering it visually on the canvas but hiding it from the style panel because it lacks an internal Asset ID. This tool actively intercepts `url()` CSS properties and reroutes them to the Extracted CSS box to prevent this lock-in.
+Inline scripts and external script references are extracted in their original document order into the footer export. Script bodies remain unchanged.
 
----
+The converter does not rewrite application logic, remove animation assets, bundle dependencies, or automatically deduplicate scripts already loaded by Webflow. Moving scripts from the source head to the footer can affect code that depends on its original location or execution timing.
 
-### Diagnostic Tools
+## How to use it
 
-Because Webflow's clipboard format is constantly evolving, this tool includes a suite of diagnostics to help troubleshoot when things don't paste as expected.
+1. Paste a complete HTML document or HTML fragment into **Paste Raw HTML**. Include any `<style>` and `<script>` blocks you want converted or extracted.
+2. Click **Convert to Webflow** and review the conversion notes.
+3. Click **Copy Converted HTML**, select a suitable container in the Webflow Designer, and paste with `Cmd+V` or `Ctrl+V`.
+4. Copy the **head code** into the page's **Inside `<head>` tag** field. This output can contain dependency links as well as custom CSS.
+5. Copy the **JavaScript** into **Before `</body>` tag**. Check for libraries already provided by your project before adding duplicate imports.
+6. Publish and verify layout, typography, responsive behavior, interactive states, and animation hooks.
 
-#### The "Test Native Snippet" Button
-**What it is:** This button instantly copies a tiny, statically-typed, perfectly formatted piece of native Webflow clipboard JSON to your clipboard.
-**When to use it:** Use this if you hit a wall where nothing happens when you press `Cmd+V` in Webflow. 
-- If the native snippet pastes into Webflow but your converted HTML does not, the issue lies within the tool's parsing logic. 
-- If the native snippet also fails to paste, the issue is external (e.g., your browser is blocking clipboard writes, or Webflow is experiencing a platform bug).
+The converter reports when a head or JavaScript output exceeds **50,000 characters**. It does not automatically split or host oversized output.
 
-#### The "Bug Report Generator"
-**What it is:** A streamlined diagnostic packaging tool. When you fill out its fields and click generate, it builds a massive text document containing your raw input, our generated JSON, a "control" JSON object you copied natively from Webflow, and the exact console errors.
-**When to use it:** Use this whenever a paste fails or crashes Webflow. 
-1. **Paste Webflow's Version:** Go into Webflow, build a tiny, working version of the element that failed, copy it (`Cmd+C`), and paste it into this box. The tool intercepts the clipboard and grabs Webflow's raw JSON so developers (or AI Agents) can see *exactly* how Webflow expects it to look.
-2. **Paste Console Errors:** Open your browser's inspect tool/developer console inside the Webflow designer tab. Find the red error stack trace that fired when your paste failed, and paste it into this box.
-3. **Generate:** Click **Generate & Copy Bug Report**. You can then paste this exact block to your favorite AI Agent to easily debug Webflow clipboard crashes.
+### Native Webflow fonts
 
----
+To supply fonts through Webflow's font settings instead of exported Google Fonts links, add this to your source document's head:
 
-### License & Open Source Use
+```html
+<meta name="webflow-font-provider" content="native">
+```
 
-**Released under the MIT License.**
+With this marker, the converter omits Google Fonts stylesheet and preconnect links from the head export. Configure the required font families, weights, and italics in Webflow yourself. Font-family assignments still remain in the exported custom CSS.
 
-This project is completely open source and free. You are encouraged to use, download, modify, remix, and distribute it however you see fit. Whether you are building internal tools for your agency or extending it for the community, it is yours to build upon without restriction.
+### Full original CSS fallback
 
----
+The **Keep full original CSS as a fallback** option is off by default. Enable it to retain the original inline stylesheets in the head export while also generating native class styles.
 
-### Disclaimer
+This preserves the original inline CSS rule order, but those rules can override edits made in the Designer. It does not guarantee that converted markup will behave exactly like the source document.
 
-This tool was originally created as an internal utility by [Dan Design](https://bydan.us) to streamline our own development workflows. 
+## Limitations
 
-**Please note:**
-- **No Affiliation:** This project is an independent, community-driven tool. It is not affiliated with, endorsed by, or in partnership with Webflow in any way. "Webflow" is a registered trademark of Webflow, Inc.
-- **"As-Is" Basis:** This tool is provided "as-is" without warranties of any kind. It is not guaranteed to work flawlessly. Use it at your own discretion and risk. Dan Design is not liable for any issues, data loss, or canvas crashes that may occur.
-- **Accuracy:** Webflow's proprietary clipboard schemas are undocumented and change frequently. Because of this, the functionality of this tool, as well as the technical details outlined in this document, may fall out of date or contain inaccuracies.
+- Webflow's clipboard format is undocumented. Successful conversion does not guarantee successful import or an identical published result.
+- Imported styles can interact with existing tag styles, classes, and project settings. Check typography and element defaults, especially headings and blockquotes.
+- Native and custom styles are exported separately. This can change cascade relationships; complex combinations of classes and responsive rules need verification.
+- CSS nesting and arbitrary breakpoint systems are not translated into native Designer styles.
+- Embed internals, custom CSS, and extracted JavaScript remain code-based.
+- Image URLs are preserved; assets are not uploaded to the Webflow asset library.
+- Inline `style` attributes are not converted into native class styles.
+- Source `<html>` and `<body>` classes are not applied to Webflow's document root. Put important component styling on an imported wrapper.
+- Text nodes are trimmed, which can affect spaces between inline elements.
+- Form conversion is limited. The current parser substitutes divs for `input`, `textarea`, and `hr`; it does not generate complete native Webflow forms.
+- The converter does not enforce Client-First naming or automatically turn arbitrary class combinations into a managed combo-class system.
+
+## Diagnostics
+
+### Conversion notes
+
+The output reports oversized code, conditional media queries retained as custom CSS, native-font configuration, and certain embedded restoration payloads. These notes are guidance, not a complete validation of the generated page.
+
+### Test Native Snippet
+
+Copies a small reference clipboard payload to help troubleshoot paste failures. If it pastes but your converted output does not, investigate the generated payload. If neither pastes, check clipboard permissions and the Webflow session as well as payload compatibility.
+
+### Bug Report Generator
+
+Packages your input, generated output, a clipboard example copied from Webflow, and any console errors you provide.
+
+1. Build and copy a small comparable element in Webflow.
+2. Paste it into **Paste Webflow's Version** to capture its clipboard JSON.
+3. Add relevant console errors.
+4. Click **Generate & Copy Bug Report**.
+
+Review the report before sharing it: source code and clipboard content may contain private text, URLs, or other project data.
+
+## Tutorial and guide
+
+[Read the guide on bydan.us](https://www.bydan.us/resources/html-to-webflow-converter)
+
+[![Watch the tutorial](https://img.youtube.com/vi/3NaCTm4DuB8/maxresdefault.jpg)](https://youtu.be/3NaCTm4DuB8)
+
+## License
+
+Released under the **MIT License**. See the repository's license file for its terms.
+
+## Disclaimer
+
+Created by [Dan Design](https://bydan.us). This is an independent tool and is not affiliated with or endorsed by Webflow.
+
+Provided as-is, without warranty. Keep a backup and test changes before using them on an important page. Clipboard-format changes may require updates to the converter.
