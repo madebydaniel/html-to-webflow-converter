@@ -48,6 +48,10 @@
             const [inputHtml, setInputHtml] = useState('');
             const [conversionNotes, setConversionNotes] = useState('');
             const [preserveCss, setPreserveCss] = useState(false);
+            const [classStacks, setClassStacks] = useState([]);
+            const [requireDesignerClasses, setRequireDesignerClasses] = useState(false);
+            const [showDesignerClassInfo, setShowDesignerClassInfo] = useState(false);
+            const copyingBlocked = requireDesignerClasses && classStacks.length > 0;
             const [webflowData, setWebflowData] = useState(null);
             const [cssData, setCssData] = useState('');
             const [jsData, setJsData] = useState('');
@@ -82,6 +86,15 @@
                 const scripts = [];
                 const stylesMap = new Map();
 
+                // Native nodes receive independent class records, not a managed combo hierarchy.
+                // Embed internals remain HTML and do not participate in Designer class editing.
+                const classStacks = Array.from(doc.body.querySelectorAll('[class]')).filter(el =>
+                    el.classList.length > 1 && !el.closest('svg,video,audio,canvas,iframe,script,style,template')
+                ).map(el => ({
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id || '',
+                    classes: Array.from(el.classList)
+                }));
                 const parsedCssRules = {};
 
                 const notes=[];
@@ -394,6 +407,7 @@
                 if(preserveCss)notes.push('Full CSS fallback enabled: exact CSS order is retained, but it can override changes made in Designer.');
                 return {
                     notes: [...new Set(notes)].join('\n'),
+                    classStacks,
                     cssText: headExport,
                     jsText: jsExport,
                     webflowJson: {
@@ -428,6 +442,7 @@
                 try {
                     const result = parseHtmlToWebflow(inputHtml);
                     setConversionNotes(result.notes);
+                    setClassStacks(result.classStacks);
                     setWebflowData(result.webflowJson);
                     setCssData(result.cssText);
                     setJsData(result.jsText);
@@ -450,7 +465,7 @@
             };
 
             const copyWebflowToClipboard = () => {
-                if (!webflowData) return;
+                if (!webflowData || copyingBlocked) return;
                 const jsonStr = JSON.stringify(webflowData, null, 2);
 
                 const handleCopy = (e) => {
@@ -544,6 +559,7 @@
             };
 
             const copyTextToClipboard = (text, setter) => {
+                if (copyingBlocked) return;
                 navigator.clipboard.writeText(text).then(() => {
                     setter(true);
                     setTimeout(() => setter(false), 2000);
@@ -586,6 +602,18 @@
                             onChange: (event) => setInputHtml(event.target.value)
                         }),
                         e("label", {className:"text-sm text-gray-700"},e("input",{type:"checkbox",checked:preserveCss,onChange:event=>setPreserveCss(event.target.checked)})," Keep full original CSS as a fallback (overrides native Designer styles)"),
+                        e("div", {className:"flex items-start gap-2"},
+                            e("label", {className:"text-sm text-gray-700",htmlFor:"require-designer-classes"},e("input",{id:"require-designer-classes",type:"checkbox",checked:requireDesignerClasses,onChange:event=>setRequireDesignerClasses(event.target.checked)})," Require Designer-compatible classes (disable output copying when independent classes are stacked)"),
+                            e("button",{type:"button",onClick:()=>setShowDesignerClassInfo(value=>!value),"aria-label":"About Designer-compatible classes","aria-expanded":showDesignerClassInfo,"aria-controls":"designer-class-info",className:"shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full border border-brand-blue text-brand-blue hover:bg-brand-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue",title:"About Designer-compatible classes"},
+                                e("svg",{width:14,height:14,viewBox:"0 0 16 16",fill:"none","aria-hidden":true},e("path",{d:"M8 7v5",stroke:"currentColor",strokeWidth:1.5,strokeLinecap:"round"}),e("circle",{cx:8,cy:4,r:1,fill:"currentColor"})))
+                        ),
+                        showDesignerClassInfo ? e("div",{id:"designer-class-info",className:"p-4 rounded border border-brand-lighter bg-brand-light text-sm text-gray-700 space-y-2"},
+                            e("h4",{className:"font-semibold text-brand-dark"},"What does Designer-compatible mean?"),
+                            e("p",null,"Webflow can accept an element with several independent classes, but selecting and editing individual classes, especially hover and focus states, in the Designer may behave unexpectedly."),
+                            e("p",null,"For example, ",e("code",{className:"font-mono text-xs"},'class="button reset"')," imports two independent classes. This converter does not turn that list into a native Webflow base/combo-class hierarchy."),
+                            e("p",null,"With this option enabled, conversion still runs and lists the affected elements, but copying the converted HTML, CSS, and JavaScript is disabled. Give each affected element one meaningful class, consolidate its styles in the source, and convert again."),
+                            e("p",null,"Leave the option off if you accept independent class stacks: you will still see the warning and can copy the results. Classes inside HTML embeds are excluded because those contents are edited as code.")
+                        ):null,
                         e("button", {
                             onClick: handleConvert,
                             className: "w-full py-4 px-6 bg-brand-blue hover:bg-brand-dark text-white rounded font-bold uppercase tracking-wider text-sm transition-colors border border-transparent hover:border-brand-dark flex items-center justify-center gap-2"
@@ -596,6 +624,14 @@
                         e("div", { className: "bg-white p-6 rounded shadow-sm border border-gray-100 flex flex-col space-y-5" },
                             e("div", null,
                                 e("h3", { className: "font-semibold text-brand-dark text-lg" }, "Webflow Elements"),
+                                classStacks.length ? e("div",{className:"mt-3 p-4 border-2 border-amber-500 rounded bg-amber-50 text-amber-950",role:"alert"},
+                                    e("h4",{className:"font-bold"},"Multiple independent classes detected"),
+                                    e("p",{className:"text-sm mt-2"},"Webflow can accept these elements, but editing individual classes and their hover/focus states in the Designer may behave unexpectedly. If you need predictable Designer editing, update the source before importing."),
+                                    e("p",{className:"text-sm font-semibold mt-2"},`${classStacks.length} affected element${classStacks.length===1?'':'s'}. ${copyingBlocked?'Output copying is disabled. Fix the source and convert again, or turn off the strict option to proceed.':'Conversion completed. Copying is available; review the affected elements before importing.'}`),
+                                    e("p",{className:"text-xs mt-2"},"This converter imports class lists as independent classes; it does not infer native combo classes. Classes inside HTML embeds are excluded."),
+                                    e("details",{className:"mt-3"},e("summary",{className:"cursor-pointer font-semibold text-sm"},"Show affected elements and classes"),
+                                        e("ol",{className:"mt-2 max-h-64 overflow-auto list-decimal pl-5 text-xs font-mono space-y-2"},classStacks.map((item,index)=>e("li",{key:index},`${item.tag}${item.id?'#'+item.id:''}, ${item.classes.join(' ')}`))))
+                                ):null,
                                 conversionNotes ? e("pre",{className:"text-xs whitespace-pre-wrap text-gray-700 mt-3",role:"status"},conversionNotes):null,
                                 e("p", { className: "text-sm text-gray-500 mt-1 leading-relaxed" }, "Parsed DOM tree mapped to @webflow/X-Ray JSON structure. Paste this directly on the Webflow canvas.")
                             ),
@@ -606,8 +642,8 @@
                                 }, "Test Native Snippet"),
                                 e("button", {
                                     onClick: copyWebflowToClipboard,
-                                    disabled: !webflowData,
-                                    className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-sm transition-colors flex items-center justify-center gap-2 ${!webflowData ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedWf ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-brand-blue border-2 border-brand-blue hover:bg-brand-light'}`
+                                    disabled: !webflowData || copyingBlocked,
+                                    className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-sm transition-colors flex items-center justify-center gap-2 ${!webflowData || copyingBlocked ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedWf ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-brand-blue border-2 border-brand-blue hover:bg-brand-light'}`
                                 }, copiedWf ? 'Copied to Clipboard!' : 'Copy Converted HTML')
                             )
                         ),
@@ -619,8 +655,8 @@
                             e("textarea", { readOnly: true, value: cssData, className: "w-full h-24 text-xs font-mono p-3 border border-gray-200 rounded-md bg-gray-50 text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-blue", placeholder: "Extracted CSS..." }),
                             e("button", {
                                 onClick: () => copyTextToClipboard(cssData, setCopiedCss),
-                                disabled: !cssData,
-                                className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-xs transition-colors ${!cssData ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedCss ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`
+                                disabled: !cssData || copyingBlocked,
+                                className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-xs transition-colors ${!cssData || copyingBlocked ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedCss ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`
                             }, copiedCss ? 'Copied CSS!' : 'Copy CSS'),
                             
                             e("div", { className: "mt-2 pt-2 border-t border-gray-100" },
@@ -630,8 +666,8 @@
                             e("textarea", { readOnly: true, value: jsData, className: "w-full h-24 text-xs font-mono p-3 border border-gray-200 rounded-md bg-gray-50 text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-blue", placeholder: "Extracted JS..." }),
                             e("button", {
                                 onClick: () => copyTextToClipboard(jsData, setCopiedJs),
-                                disabled: !jsData,
-                                className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-xs transition-colors ${!jsData ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedJs ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`
+                                disabled: !jsData || copyingBlocked,
+                                className: `w-full py-3 px-4 rounded font-bold uppercase tracking-wider text-xs transition-colors ${!jsData || copyingBlocked ? 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed' : copiedJs ? 'bg-brand-light text-brand-blue border border-brand-lighter' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`
                             }, copiedJs ? 'Copied JS!' : 'Copy JS')
                         )
                     )
@@ -715,7 +751,7 @@ ${consoleErrors}
                     e("div", { className: "text-gray-500 text-sm" }, 
                         "Made by ", 
                         e("a", { href: "https://bydan.us", target: "_blank", rel: "noopener noreferrer", className: "text-blue-600 font-medium hover:underline" }, "Dan Design"),
-                        ". Released under the MIT License — free for anyone to use, download, remix, and reuse."
+                        ". Released under the MIT License, free for anyone to use, download, remix, and reuse."
                     ),
                     e("div", { className: "text-gray-400 text-xs mt-2 max-w-xl" },
                         "Not affiliated with or endorsed by Webflow. Provided \"as-is\" without warranty. Use at your own risk."
